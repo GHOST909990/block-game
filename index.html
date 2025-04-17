@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Уклоняйся от блоков</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: sans-serif;
+            background-color: #111;
+            color: #fff;
+            overflow: hidden;
+        }
+
+        #game {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+            background: linear-gradient(to bottom, #222, #000);
+        }
+
+        #player {
+            width: 60px;
+            height: 60px;
+            background-color: #4caf50;
+            position: absolute;
+            border-radius: 10px;
+            transition: transform 0.1s linear;
+        }
+
+        .block {
+            width: 60px;
+            height: 60px;
+            background-color: #e53935;
+            position: absolute;
+            top: 0;
+            border-radius: 8px;
+            animation: fall linear;
+        }
+
+        @keyframes fall {
+            to {
+                top: 100vh;
+            }
+        }
+
+        .explosion {
+            position: absolute;
+            width: 80px;
+            height: 80px;
+            background-color: rgba(255, 165, 0, 0.8);
+            border-radius: 50%;
+            animation: explode 0.5s ease-out;
+        }
+
+        @keyframes explode {
+            0% {
+                transform: scale(0);
+                opacity: 1;
+            }
+
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+
+        #score,
+        #record,
+        #boostStatus {
+            position: absolute;
+            font-size: 20px;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 8px;
+        }
+
+        #score {
+            top: 10px;
+            left: 10px;
+        }
+
+        #record {
+            top: 10px;
+            right: 10px;
+        }
+
+        #boostStatus {
+            top: 60px;
+            left: 10px;
+            color: #ffd700;
+        }
+
+        @media (max-width: 768px) {
+
+            #score,
+            #record,
+            #boostStatus {
+                font-size: 30px;
+                padding: 15px 20px;
+            }
+        }
+
+        #gameOverModal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: #fff;
+            padding: 30px;
+            border-radius: 10px;
+            text-align: center;
+            z-index: 10;
+        }
+
+        #gameOverModal button {
+            background-color: #4caf50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 18px;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        #gameOverModal button:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="game">
+        <div id="player"></div>
+        <div id="score">Очки: 0</div>
+        <div id="record">Рекорд: 0</div>
+        <div id="boostStatus"></div>
+    </div>
+
+    <div id="gameOverModal">
+        <h2>Игра окончена!</h2>
+        <p>Ваш счёт: <span id="finalScore"></span></p>
+        <p>Рекорд: <span id="finalRecord"></span></p>
+        <button onclick="restartGame()">Начать заново</button>
+    </div>
+
+    <script>
+        const game = document.getElementById('game');
+        const player = document.getElementById('player');
+        const scoreEl = document.getElementById('score');
+        const recordEl = document.getElementById('record');
+        const boostStatus = document.getElementById('boostStatus');
+        const gameOverModal = document.getElementById('gameOverModal');
+        const finalScoreEl = document.getElementById('finalScore');
+        const finalRecordEl = document.getElementById('finalRecord');
+
+        let score = 0;
+        let gameOver = false;
+        const speed = 4;
+        const blockSpeed = 7;
+        let playerX = window.innerWidth / 2 - 30;
+        let playerY = window.innerHeight - 80;
+        let keys = {};
+        let boost = null;
+        let boostTimeout = null;
+        let record = localStorage.getItem('record') || 0;
+        let lives = 1; // 1 дополнительная жизнь
+        let hasExtraLife = false; // Флаг для отслеживания, была ли получена дополнительная жизнь
+
+        recordEl.textContent = 'Рекорд: ' + record;
+
+        document.addEventListener('keydown', e => {
+            keys[e.key.toLowerCase()] = true;
+        });
+
+        document.addEventListener('keyup', e => {
+            keys[e.key.toLowerCase()] = false;
+        });
+
+        function updatePlayer() {
+            if (gameOver) return;
+
+            if (keys['arrowleft'] || keys['a']) playerX -= speed;
+            if (keys['arrowright'] || keys['d']) playerX += speed;
+            if (keys['arrowup'] || keys['w']) playerY -= speed;
+            if (keys['arrowdown'] || keys['s']) playerY += speed;
+
+            playerX = Math.max(0, Math.min(window.innerWidth - 60, playerX));
+            playerY = Math.max(0, Math.min(window.innerHeight - 60, playerY));
+
+            player.style.left = playerX + 'px';
+            player.style.top = playerY + 'px';
+
+            requestAnimationFrame(updatePlayer);
+        }
+
+        updatePlayer();
+
+        function createBlock() {
+            if (gameOver) return;
+
+            const block = document.createElement('div');
+            block.classList.add('block');
+            const x = Math.floor(Math.random() * (window.innerWidth - 60));
+            block.style.left = x + 'px';
+
+            const isBonus = Math.random() < 0.15;
+            let boostType = null;
+
+            if (isBonus && !hasExtraLife) {
+                const types = ['speed', 'shield', 'slow', 'heal'];
+                boostType = types[Math.floor(Math.random() * types.length)];
+
+                let emoji = '';
+                if (boostType === 'speed') {
+                    block.style.backgroundColor = '#00e676';
+                    emoji = '🚀';
+                } else if (boostType === 'shield') {
+                    block.style.backgroundColor = '#2196f3';
+                    emoji = '🛡️';
+                } else if (boostType === 'slow') {
+                    block.style.backgroundColor = '#ff9800';
+                    emoji = '🐢';
+                } else if (boostType === 'heal') {
+                    block.style.backgroundColor = '#ff4081';
+                    emoji = '❤️';
+                }
+
+                block.textContent = emoji;
+                block.style.fontSize = '24px';
+                block.style.display = 'flex';
+                block.style.alignItems = 'center';
+                block.style.justifyContent = 'center';
+                block.style.color = '#fff';
+                block.dataset.boost = boostType;
+            }
+
+            const baseDuration = 2.5;
+            block.style.animationDuration = blockSpeed + 's'; // Блоки падают быстрее
+
+            game.appendChild(block);
+
+            const checkCollision = setInterval(() => {
+                if (gameOver) {
+                    clearInterval(checkCollision);
+                    return;
+                }
+
+                const blockRect = block.getBoundingClientRect();
+                const playerRect = player.getBoundingClientRect();
+
+                if (
+                    blockRect.bottom >= playerRect.top &&
+                    blockRect.top <= playerRect.bottom &&
+                    blockRect.left < playerRect.right &&
+                    blockRect.right > playerRect.left
+                ) {
+                    clearInterval(checkCollision);
+
+                    if (block.dataset.boost) {
+                        activateBoost(block.dataset.boost);
+                        block.remove();
+                    } else if (boost !== 'shield') {
+                        showExplosion(playerRect);
+                        endGame();
+                    } else {
+                        block.remove(); // Щит поглощает
+                    }
+                }
+            }, 20);
+
+            block.addEventListener('animationend', () => {
+                if (!gameOver && !block.dataset.boost) {
+                    score++;
+                    scoreEl.textContent = 'Очки: ' + score;
+                }
+                block.remove();
+                clearInterval(checkCollision);
+            });
+        }
+
+        function activateBoost(type) {
+            clearTimeout(boostTimeout);
+            boost = type;
+
+            if (type === 'shield') {
+                boostStatus.textContent = '🛡️ Щит активен';
+            } else if (type === 'speed') {
+                boostStatus.textContent = '🚀 Ускорение x2';
+            } else if (type === 'slow') {
+                boostStatus.textContent = '🐢 Замедление блоков';
+            } else if (type === 'heal') {
+                if (!hasExtraLife) {
+                    hasExtraLife = true; // У игрока теперь есть дополнительная жизнь
+                    boostStatus.textContent = '❤️ Дополнительная жизнь!';
+                }
+            }
+
+            boostTimeout = setTimeout(() => {
+                boost = null;
+                boostStatus.textContent = '';
+            }, 5000);
+        }
+
+        function showExplosion(rect) {
+            const explosion = document.createElement('div');
+            explosion.classList.add('explosion');
+            explosion.style.left = rect.left - 10 + 'px';
+            explosion.style.top = rect.top - 10 + 'px';
+            game.appendChild(explosion);
+
+            setTimeout(() => explosion.remove(), 500);
+        }
+
+        function endGame() {
+            if (lives === 1 && !hasExtraLife) {
+                gameOver = true;
+                if (score > record) {
+                    record = score;
+                    localStorage.setItem('record', record);
+                }
+                finalScoreEl.textContent = score;
+                finalRecordEl.textContent = record;
+                recordEl.textContent = 'Рекорд: ' + record;
+                gameOverModal.style.display = 'block';
+            } else if (hasExtraLife) {
+                hasExtraLife = false;
+            }
+        }
+
+        function restartGame() {
+            location.reload();
+        }
+
+        setInterval(createBlock, 700);
+
+        // Мобильное управление (свайпы)
+        let touchStartX = 0, touchStartY = 0;
+        game.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            touchStartY = e.touches[0].clientY;
+        });
+
+        game.addEventListener('touchmove', (e) => {
+            if (gameOver) return;
+            const moveX = e.touches[0].clientX;
+            const moveY = e.touches[0].clientY;
+            const deltaX = moveX - touchStartX;
+            const deltaY = moveY - touchStartY;
+
+            if (Math.abs(deltaX) > Math.abs(deltaY)) {
+                if (deltaX > 20) {
+                    playerX += speed;
+                } else if (deltaX < -20) {
+                    playerX -= speed;
+                }
+            }
+
+            if (Math.abs(deltaY) > Math.abs(deltaX)) {
+                if (deltaY > 20) {
+                    playerY += speed;
+                } else if (deltaY < -20) {
+                    playerY -= speed;
+                }
+            }
+
+            playerX = Math.max(0, Math.min(window.innerWidth - 60, playerX));
+            playerY = Math.max(0, Math.min(window.innerHeight - 60, playerY));
+
+            player.style.left = playerX + 'px';
+            player.style.top = playerY + 'px';
+
+            touchStartX = moveX;
+            touchStartY = moveY;
+        });
+    </script>
+</body>
+
+</html>
