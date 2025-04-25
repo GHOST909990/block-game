@@ -352,7 +352,15 @@
             location.reload();
         }
 
-        setInterval(createBlock, 700);
+
+        const mediaQuery = window.matchMedia('(max-width: 768px)');
+
+        if (mediaQuery.matches) {
+            setInterval(createBlock, 1000);  
+        }
+        else {
+            setInterval(createBlock, 700);  
+        }
 
         // Мобильное управление (свайпы)
         let touchStartX = 0, touchStartY = 0;
